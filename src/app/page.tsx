@@ -219,7 +219,7 @@ export default function Page() {
             />
 
             {/* Panel 3 – GP (chart) */}
-            <div style={{ position: 'relative' }}>
+            <div style={{ position: 'relative', height: '100%', minHeight: 0 }}>
               <ChartPanel
                 symbol={chartItem.symbol}
                 price={chartItem.price}
