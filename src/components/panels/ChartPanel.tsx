@@ -1,7 +1,8 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
-import { OHLCBar } from '@/lib/types'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { toYFSymbol } from '@/hooks/useLiveData'
 import { generateOHLC } from '@/lib/mockData'
+import type { ChartBar } from '@/app/api/chart/route'
 
 interface Props {
   symbol: string
@@ -10,135 +11,202 @@ interface Props {
   panelNum?: number
 }
 
-const PERIODS = ['1D', '1W', '1M', '3M', '6M', '1Y', '5Y'] as const
+const PERIODS = ['1D', '5D', '1M', '3M', '6M', '1Y', '5Y'] as const
 type Period = typeof PERIODS[number]
 
-const PERIOD_DAYS: Record<Period, number> = {
-  '1D': 1, '1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, '5Y': 1825
+const PERIOD_HU: Record<Period, string> = {
+  '1D': '1 nap', '5D': '5 nap', '1M': '1 hó',
+  '3M': '3 hó',  '6M': '6 hó', '1Y': '1 év', '5Y': '5 év',
 }
 
-// Hungarian period labels
-const PERIOD_HU: Record<string, string> = {
-  '1D': '1 nap', '1W': '5 nap', '1M': '1 hó', '3M': '3 hó', '6M': '6 hó', '1Y': '1 év', '5Y': '5 év',
+const PERIOD_DAYS: Record<Period, number> = {
+  '1D': 1, '5D': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, '5Y': 1825,
+}
+
+function fmtPrice(p: number): string {
+  if (p >= 10000) return p.toFixed(2)
+  if (p >= 1000)  return p.toFixed(2)
+  if (p >= 10)    return p.toFixed(3)
+  return p.toFixed(4)
 }
 
 export function ChartPanel({ symbol, price, changePct, panelNum = 3 }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const [period, setPeriod] = useState<Period>('3M')
-  const [data, setData] = useState<OHLCBar[]>([])
-  const [hovered, setHovered] = useState<OHLCBar | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const chartRef    = useRef<any>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const seriesRef   = useRef<any>(null)
 
-  useEffect(() => {
-    setData(generateOHLC(price, PERIOD_DAYS[period]))
-  }, [symbol, period, price])
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    const container = containerRef.current
-    if (!canvas || !container || data.length === 0) return
-
-    const w = container.clientWidth
-    const h = container.clientHeight
-    canvas.width = w
-    canvas.height = h
-    const ctx = canvas.getContext('2d')!
-
-    const prices = data.map(d => d.close)
-    const minP = Math.min(...prices) * 0.998
-    const maxP = Math.max(...prices) * 1.002
-
-    const padL = 60, padR = 8, padT = 16, padB = 28
-    const plotW = w - padL - padR
-    const plotH = h - padT - padB
-
-    // Background
-    ctx.fillStyle = '#080808'
-    ctx.fillRect(0, 0, w, h)
-
-    // Grid lines
-    ctx.strokeStyle = '#1a1a1a'
-    ctx.lineWidth = 1
-    for (let i = 0; i <= 4; i++) {
-      const y = padT + (plotH / 4) * i
-      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke()
-      const p = maxP - ((maxP - minP) / 4) * i
-      ctx.fillStyle = '#555'
-      ctx.font = '9px Courier New'
-      ctx.textAlign = 'right'
-      ctx.fillText(p.toFixed(2), padL - 4, y + 3)
-    }
-
-    // Area fill
-    const toX = (i: number) => padL + (i / (data.length - 1)) * plotW
-    const toY = (p: number) => padT + ((maxP - p) / (maxP - minP)) * plotH
-
-    const gradient = ctx.createLinearGradient(0, padT, 0, padT + plotH)
-    const isUp = data[data.length - 1].close >= data[0].close
-    gradient.addColorStop(0, isUp ? 'rgba(0,255,65,0.15)' : 'rgba(255,51,51,0.15)')
-    gradient.addColorStop(1, 'rgba(0,0,0,0)')
-
-    ctx.beginPath()
-    ctx.moveTo(toX(0), toY(data[0].close))
-    data.forEach((d, i) => ctx.lineTo(toX(i), toY(d.close)))
-    ctx.lineTo(toX(data.length - 1), padT + plotH)
-    ctx.lineTo(toX(0), padT + plotH)
-    ctx.closePath()
-    ctx.fillStyle = gradient
-    ctx.fill()
-
-    // Line
-    ctx.beginPath()
-    ctx.strokeStyle = isUp ? '#00FF41' : '#FF3333'
-    ctx.lineWidth = 1.5
-    data.forEach((d, i) => {
-      if (i === 0) ctx.moveTo(toX(i), toY(d.close))
-      else ctx.lineTo(toX(i), toY(d.close))
-    })
-    ctx.stroke()
-
-    // Hovered crosshair
-    if (hovered) {
-      const idx = data.indexOf(hovered)
-      const x = toX(idx)
-      const y = toY(hovered.close)
-      ctx.strokeStyle = '#444'
-      ctx.lineWidth = 1
-      ctx.setLineDash([3, 3])
-      ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke()
-      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke()
-      ctx.setLineDash([])
-      ctx.fillStyle = '#FFA500'
-      ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill()
-    }
-
-    // X-axis date labels
-    ctx.fillStyle = '#555'
-    ctx.font = '9px Courier New'
-    ctx.textAlign = 'center'
-    const labelCount = Math.min(6, data.length)
-    for (let i = 0; i < labelCount; i++) {
-      const idx = Math.floor((i / (labelCount - 1)) * (data.length - 1))
-      const d = data[idx]
-      const x = toX(idx)
-      const label = new Date(d.time * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      ctx.fillText(label, x, h - 8)
-    }
-  }, [data, hovered])
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current
-    if (!canvas || data.length === 0) return
-    const rect = canvas.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const padL = 60, padR = 8
-    const plotW = canvas.width - padL - padR
-    const idx = Math.round(((x - padL) / plotW) * (data.length - 1))
-    if (idx >= 0 && idx < data.length) setHovered(data[idx])
-  }
+  const [period,     setPeriod]     = useState<Period>('3M')
+  const [dataSource, setDataSource] = useState<'live' | 'sim'>('sim')
+  const [loading,    setLoading]    = useState(false)
+  const [tooltip,    setTooltip]    = useState<{ time: string; open: number; high: number; low: number; close: number } | null>(null)
 
   const isUp = changePct >= 0
-  const priceLabel = price >= 1000 ? price.toFixed(2) : price >= 10 ? price.toFixed(3) : price.toFixed(4)
+  const upColor   = '#00FF41'
+  const downColor = '#FF3333'
+  const lineColor = isUp ? upColor : downColor
+
+  // ── Init Lightweight Charts ────────────────────────────────────────────────
+  useEffect(() => {
+    if (!containerRef.current) return
+
+    let chart: ReturnType<typeof import('lightweight-charts').createChart>
+
+    import('lightweight-charts').then((lc) => {
+      const { createChart, ColorType, CrosshairMode, CandlestickSeries } = lc as typeof import('lightweight-charts') & {
+        CandlestickSeries: unknown
+      }
+      if (!containerRef.current) return
+
+      chart = createChart(containerRef.current, {
+        layout: {
+          background: { type: ColorType.Solid, color: '#080808' },
+          textColor: '#555555',
+          fontFamily: 'Courier New, monospace',
+          fontSize: 10,
+        },
+        grid: {
+          vertLines: { color: '#111111' },
+          horzLines: { color: '#111111' },
+        },
+        crosshair: {
+          mode: CrosshairMode.Normal,
+          vertLine: { color: '#3a3a3a', labelBackgroundColor: '#1a1a1a' },
+          horzLine: { color: '#3a3a3a', labelBackgroundColor: '#1a1a1a' },
+        },
+        rightPriceScale: { borderColor: '#1a1a1a' },
+        timeScale: {
+          borderColor: '#1a1a1a',
+          timeVisible: true,
+          secondsVisible: false,
+        },
+        handleScroll: true,
+        handleScale: true,
+        width:  containerRef.current.clientWidth,
+        height: containerRef.current.clientHeight,
+      })
+
+      chartRef.current = chart
+
+      // Candlestick series — v5 API
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cs = (chart as any).addSeries
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ? (chart as any).addSeries(CandlestickSeries, {
+            upColor,
+            downColor,
+            borderUpColor:   upColor,
+            borderDownColor: downColor,
+            wickUpColor:     upColor,
+            wickDownColor:   downColor,
+          })
+        // fallback for v4-style API
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        : (chart as any).addCandlestickSeries({
+            upColor, downColor,
+            borderUpColor: upColor, borderDownColor: downColor,
+            wickUpColor: upColor, wickDownColor: downColor,
+          })
+
+      seriesRef.current = cs
+
+      // Tooltip on crosshair move
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      chart.subscribeCrosshairMove((param: any) => {
+        if (!param.time || !param.seriesData) { setTooltip(null); return }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const d = (param.seriesData as Map<any, any>).get(cs) as
+          { open: number; high: number; low: number; close: number } | undefined
+        if (!d) { setTooltip(null); return }
+        const t = param.time as number
+        const date = new Date(t * 1000).toLocaleDateString('hu-HU', {
+          year: '2-digit', month: 'short', day: 'numeric'
+        })
+        setTooltip({ time: date, ...d })
+      })
+
+      // Resize observer
+      const ro = new ResizeObserver(() => {
+        if (containerRef.current && chartRef.current) {
+          chartRef.current.applyOptions({
+            width:  containerRef.current.clientWidth,
+            height: containerRef.current.clientHeight,
+          })
+        }
+      })
+      ro.observe(containerRef.current)
+
+      return () => {
+        ro.disconnect()
+        chart.remove()
+      }
+    })
+
+    return () => {
+      if (chartRef.current) {
+        try { chartRef.current.remove() } catch { /* ignore */ }
+        chartRef.current  = null
+        seriesRef.current = null
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ── Load chart data ────────────────────────────────────────────────────────
+  const loadData = useCallback(async (sym: string, per: Period) => {
+    if (!seriesRef.current) return
+    setLoading(true)
+
+    const yfSym = toYFSymbol(sym)
+
+    try {
+      const res = await fetch(`/api/chart?symbol=${encodeURIComponent(yfSym)}&period=${per}`, {
+        signal: AbortSignal.timeout(10000),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+      const json = await res.json()
+      const bars: ChartBar[] = json.bars ?? []
+
+      if (bars.length === 0) throw new Error('no bars')
+
+      seriesRef.current.setData(
+        bars.map(b => ({
+          time:  b.time,
+          open:  b.open,
+          high:  b.high,
+          low:   b.low,
+          close: b.close,
+        }))
+      )
+      chartRef.current?.timeScale().fitContent()
+      setDataSource('live')
+    } catch {
+      // Fallback to generated OHLC
+      const generated = generateOHLC(price, PERIOD_DAYS[per])
+      seriesRef.current?.setData(
+        generated.map(b => ({
+          time:  b.time,
+          open:  b.open,
+          high:  b.high,
+          low:   b.low,
+          close: b.close,
+        }))
+      )
+      chartRef.current?.timeScale().fitContent()
+      setDataSource('sim')
+    } finally {
+      setLoading(false)
+    }
+  }, [price])
+
+  // Reload when symbol or period changes
+  useEffect(() => {
+    // Small delay to let chart initialize
+    const t = setTimeout(() => loadData(symbol, period), 100)
+    return () => clearTimeout(t)
+  }, [symbol, period, loadData])
 
   return (
     <div className="bb-panel">
@@ -155,19 +223,34 @@ export function ChartPanel({ symbol, price, changePct, panelNum = 3 }: Props) {
           GP ▾
         </button>
       </div>
-      {/* Sub-header: symbol + price + change + periods */}
+
+      {/* Sub-header: symbol + price + periods */}
       <div style={{
         background: '#080808', borderBottom: '1px solid #1a1a1a',
-        padding: '3px 8px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+        padding: '3px 8px', display: 'flex', alignItems: 'center',
+        gap: 6, flexShrink: 0, flexWrap: 'wrap',
       }}>
-        <span style={{ color: '#FFD700', fontSize: 11, fontWeight: 'bold' }}>
-          {symbol}
-        </span>
-        <span style={{ color: '#DEDEDE', fontSize: 11 }}>{priceLabel}</span>
-        <span style={{ color: isUp ? '#00FF41' : '#FF3333', fontSize: 10 }}>
+        <span style={{ color: '#FFD700', fontSize: 11, fontWeight: 'bold' }}>{symbol}</span>
+        <span style={{ color: '#DEDEDE', fontSize: 11 }}>{fmtPrice(price)}</span>
+        <span style={{ color: isUp ? upColor : downColor, fontSize: 10 }}>
           {isUp ? '▲' : '▼'} {Math.abs(changePct).toFixed(2)}%
         </span>
+
+        {/* Data source badge */}
+        <div style={{
+          fontSize: 8, padding: '1px 5px',
+          background: dataSource === 'live' ? '#00441144' : '#2a2a2a',
+          color:      dataSource === 'live' ? '#00FF41'   : '#555',
+          border:     `1px solid ${dataSource === 'live' ? '#00441188' : '#333'}`,
+          letterSpacing: '0.08em',
+        }}>
+          {dataSource === 'live' ? '● ÉLŐ' : '○ SIM'}
+        </div>
+        {loading && <span style={{ color: '#444', fontSize: 9 }}>betöltés…</span>}
+
         <div style={{ flex: 1 }} />
+
+        {/* Period selector */}
         {PERIODS.map(p => (
           <button
             key={p}
@@ -175,31 +258,35 @@ export function ChartPanel({ symbol, price, changePct, panelNum = 3 }: Props) {
             style={{
               fontSize: 10, padding: '1px 7px',
               background: period === p ? '#FF8C00' : 'transparent',
-              color: period === p ? '#000' : '#444',
-              border: `1px solid ${period === p ? '#FF8C00' : '#1e1e1e'}`,
+              color:      period === p ? '#000'    : '#444',
+              border:     `1px solid ${period === p ? '#FF8C00' : '#1e1e1e'}`,
               cursor: 'pointer', fontFamily: 'Courier New',
             }}
           >
-            {PERIOD_HU[p] ?? p}
+            {PERIOD_HU[p]}
           </button>
         ))}
-        {hovered && (
-          <span style={{ color: '#555', fontSize: 9, marginLeft: 8 }}>
-            {new Date(hovered.time * 1000).toLocaleDateString('hu-HU', { month: 'short', day: 'numeric' })}
-            &nbsp;Z:{hovered.close.toFixed(2)}
-            &nbsp;M:{hovered.high.toFixed(2)}
-            &nbsp;A:{hovered.low.toFixed(2)}
-          </span>
-        )}
       </div>
-      <div ref={containerRef} className="flex-1" style={{ minHeight: 0, position: 'relative' }}>
-        <canvas
-          ref={canvasRef}
-          style={{ width: '100%', height: '100%', display: 'block', cursor: 'crosshair' }}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={() => setHovered(null)}
-        />
-      </div>
+
+      {/* Tooltip overlay */}
+      {tooltip && (
+        <div style={{
+          position: 'absolute', top: 48, left: 68, zIndex: 10,
+          background: '#0f0f0f', border: '1px solid #2a2a2a',
+          padding: '4px 8px', fontSize: 10, pointerEvents: 'none',
+          color: '#AAA', fontFamily: 'Courier New',
+        }}>
+          <span style={{ color: '#FFA500' }}>{tooltip.time}</span>
+          &nbsp;·&nbsp;
+          O: <span style={{ color: '#DDD' }}>{fmtPrice(tooltip.open)}</span>
+          &nbsp;H: <span style={{ color: upColor }}>{fmtPrice(tooltip.high)}</span>
+          &nbsp;L: <span style={{ color: downColor }}>{fmtPrice(tooltip.low)}</span>
+          &nbsp;Z: <span style={{ color: isUp ? upColor : downColor }}>{fmtPrice(tooltip.close)}</span>
+        </div>
+      )}
+
+      {/* Chart container */}
+      <div ref={containerRef} style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }} />
     </div>
   )
 }

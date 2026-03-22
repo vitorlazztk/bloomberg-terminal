@@ -13,6 +13,7 @@ import { NewsPanel }       from '@/components/panels/NewsPanel'
 import { FXPanel }         from '@/components/panels/FXPanel'
 import { MarketOverviewPanel } from '@/components/panels/MarketOverviewPanel'
 import { useSimulatedPrices }  from '@/hooks/useSimulatedPrices'
+import { useLivePrices, useLiveFX, mergePrices } from '@/hooks/useLiveData'
 import { TickerData, FXRate }  from '@/lib/types'
 import {
   EQUITY_TICKERS, INDEX_TICKERS, FX_RATES,
@@ -48,9 +49,19 @@ export default function Page() {
   const [selectedPair, setSelectedPair] = useState<string | undefined>('EUR/HUF')
   const [bottomCat,    setBottomCat]    = useState<BottomCategory>('DEVIZA')
 
-  // Live price simulation
-  const { tickers: equities, flashMap: eqFlash } = useSimulatedPrices(EQUITY_TICKERS, 1000)
-  const { tickers: indices,  flashMap: idxFlash } = useSimulatedPrices(INDEX_TICKERS,  1500)
+  // ── Simulated prices (smooth real-time feel) ──────────────────────────────
+  const { tickers: simEquities, flashMap: eqFlash } = useSimulatedPrices(EQUITY_TICKERS, 1000)
+  const { tickers: simIndices,  flashMap: idxFlash } = useSimulatedPrices(INDEX_TICKERS,  1500)
+
+  // ── Live prices from Yahoo Finance (corrects simulation every 60s) ─────────
+  const { priceMap, source: priceSource } = useLivePrices(60_000)
+
+  // Merge: live prices correct the simulated baseline
+  const equities = mergePrices(simEquities, priceMap)
+  const indices  = mergePrices(simIndices,  priceMap)
+
+  // ── Live FX rates from Frankfurter/ECB ───────────────────────────────────
+  const { rates: fxRates } = useLiveFX(FX_RATES, 60_000)
 
   // Refs for stable command handler
   const equitiesRef  = useRef(equities)
@@ -197,7 +208,7 @@ export default function Page() {
 
             {/* Panel 2 – FXC */}
             <FXCPanel
-              rates={FX_RATES}
+              rates={fxRates}
               onSelect={handleFxSelect}
               selectedPair={selectedPair}
               panelNum={2}
@@ -231,7 +242,7 @@ export default function Page() {
                 showVol={false} onSelect={handleTickerSelect} selectedSymbol={chartItem.symbol} />
               <WatchlistPanel title="INDICES" tickers={indices.slice(0, 5)} flashMap={idxFlash}
                 showVol={false} priceDecimals={0} onSelect={handleTickerSelect} selectedSymbol={chartItem.symbol} />
-              <FXPanel rates={FX_RATES.slice(0, 4)} onSelect={(r) => { setChartItem(fxToChart(r)); setSelectedPair(r.pair) }} selectedPair={selectedPair} />
+              <FXPanel rates={fxRates.slice(0, 4)} onSelect={(r) => { setChartItem(fxToChart(r)); setSelectedPair(r.pair) }} selectedPair={selectedPair} />
             </div>
             <ChartPanel symbol={chartItem.symbol} price={chartItem.price} changePct={chartItem.changePct} panelNum={3} />
           </div>
@@ -244,7 +255,7 @@ export default function Page() {
             gridTemplateColumns: selectedPair ? '1fr 1fr' : '1fr 260px',
             height: '100%', gap: 1, background: '#111',
           }}>
-            <FXCPanel rates={FX_RATES} onSelect={handleFxSelect} selectedPair={selectedPair} panelNum={2} />
+            <FXCPanel rates={fxRates} onSelect={handleFxSelect} selectedPair={selectedPair} panelNum={2} />
             {selectedPair ? (
               <ChartPanel symbol={chartItem.symbol} price={chartItem.price} changePct={chartItem.changePct} panelNum={3} />
             ) : (
@@ -275,7 +286,7 @@ export default function Page() {
                 showVol={false} onSelect={handleAISelect} selectedSymbol={chartItem.symbol} />
               <WatchlistPanel title="INDEXEK" tickers={indices.slice(0, 5)} flashMap={idxFlash}
                 showVol={false} priceDecimals={0} onSelect={handleAISelect} selectedSymbol={chartItem.symbol} />
-              <FXPanel rates={FX_RATES.slice(0, 5)} onSelect={(r) => { setChartItem(fxToChart(r)); setSelectedPair(r.pair) }} selectedPair={selectedPair} />
+              <FXPanel rates={fxRates.slice(0, 5)} onSelect={(r) => { setChartItem(fxToChart(r)); setSelectedPair(r.pair) }} selectedPair={selectedPair} />
             </div>
             <AIAnalysisPanel symbol={chartItem.symbol} price={chartItem.price} changePct={chartItem.changePct} panelNum={4} />
           </div>
