@@ -178,10 +178,11 @@ Szabályok:
   const jsonMatch = rawText.match(/\{[\s\S]*\}/)
   if (!jsonMatch) throw new Error('Claude nem adott vissza érvényes JSON-t')
 
-  const analysis = JSON.parse(jsonMatch[0]) as Omit<AIAnalysis, 'tavilyAnswer' | 'generatedAt'>
+  const analysis = JSON.parse(jsonMatch[0]) as Partial<AIAnalysis> & Omit<AIAnalysis, 'tavilyAnswer' | 'generatedAt'>
   return {
     ...analysis,
-    tavilyAnswer: tavily.answer ?? '',
+    // Claude magyar fordítását használjuk – csak ha üres, akkor az angol eredeti
+    tavilyAnswer: analysis.tavilyAnswer || tavily.answer || '',
     generatedAt: new Date().toISOString(),
   }
 }
