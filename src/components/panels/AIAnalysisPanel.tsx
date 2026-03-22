@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import type { AIAnalysis } from '@/app/api/ai-analysis/route'
 
 interface Props {
@@ -11,13 +11,16 @@ interface Props {
 
 type Tab = 'kutatas' | 'ajanlas' | 'social'
 
+// ── Modul-szintű cache – tab- és layout-váltás után is megmarad ──────────────
+const analysisCache = new Map<string, AIAnalysis>()
+
+// ── Segédek ───────────────────────────────────────────────────────────────────
 const RATING_COLORS: Record<string, string> = {
   'ERŐS VÉTEL': '#00FF41',
   'VÉTEL':      '#7FFF00',
   'TART':       '#FFA500',
   'ELADÁS':     '#FF3333',
 }
-
 const VIEW_COLORS: Record<string, string> = {
   'EMELKEDŐ':  '#00FF41',
   'SEMLEGES':  '#FFA500',
@@ -31,85 +34,81 @@ function Bar({ pct, color }: { pct: number; color: string }) {
     </div>
   )
 }
-
 function Sec({ title }: { title: string }) {
   return (
     <div style={{
       color: '#333', fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase',
       marginTop: 10, marginBottom: 5, paddingBottom: 3, borderBottom: '1px solid #141414',
-    }}>
-      {title}
-    </div>
+    }}>{title}</div>
   )
 }
-
 function Badge({ text, color }: { text: string; color: string }) {
   return (
     <span style={{
       fontSize: 9, padding: '2px 8px', fontWeight: 'bold',
-      background: color + '22', color, border: `1px solid ${color}55`,
-      letterSpacing: '0.06em',
-    }}>
-      {text}
-    </span>
+      background: color + '22', color, border: `1px solid ${color}55`, letterSpacing: '0.06em',
+    }}>{text}</span>
   )
 }
-
 function fmt(n: number): string {
   if (n >= 10000) return n.toLocaleString('hu-HU', { maximumFractionDigits: 0 })
   if (n >= 1000)  return n.toFixed(2)
   if (n >= 10)    return n.toFixed(3)
   return n.toFixed(4)
 }
-
 function pctDiff(a: number, b: number): string {
   const d = ((a / b) - 1) * 100
   return (d >= 0 ? '+' : '') + d.toFixed(1) + '%'
 }
-
-function timeSince(iso: string): string {
-  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
-  if (diff < 60)   return `${diff}mp`
-  if (diff < 3600) return `${Math.floor(diff / 60)} perce`
-  return `${Math.floor(diff / 3600)} órája`
+function formatGeneratedAt(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleString('hu-HU', {
+    month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
 }
 
+// ── Komponens ─────────────────────────────────────────────────────────────────
 export function AIAnalysisPanel({ symbol, price, changePct, panelNum = 4 }: Props) {
-  const [activeTab,  setActiveTab]  = useState<Tab>('ajanlas')
-  const [analysis,   setAnalysis]   = useState<AIAnalysis | null>(null)
-  const [loading,    setLoading]    = useState(false)
-  const [error,      setError]      = useState<string | null>(null)
-  const [dots,       setDots]       = useState('')
+  const [activeTab, setActiveTab] = useState<Tab>('ajanlas')
+  const [analysis,  setAnalysis]  = useState<AIAnalysis | null>(() => analysisCache.get(symbol) ?? null)
+  const [loading,   setLoading]   = useState(false)
+  const [error,     setError]     = useState<string | null>(null)
+  const [dots,      setDots]      = useState('')
   const abortRef = useRef<AbortController | null>(null)
 
-  // Loading dots animation
+  // Betöltés animáció
   useEffect(() => {
     if (!loading) return
     const id = setInterval(() => setDots(d => d.length >= 3 ? '' : d + '.'), 300)
     return () => clearInterval(id)
   }, [loading])
 
-  // Fetch analysis when symbol changes
-  useEffect(() => {
+  // Lekérdező függvény – csak akkor hívjuk, ha szükséges
+  const fetchAnalysis = useCallback((force = false) => {
     if (!symbol) return
+    if (!force && analysisCache.has(symbol)) {
+      setAnalysis(analysisCache.get(symbol)!)
+      setError(null)
+      return
+    }
 
-    // Cancel previous request
     abortRef.current?.abort()
     const ctrl = new AbortController()
     abortRef.current = ctrl
 
     setLoading(true)
     setError(null)
-    setAnalysis(null)
+    if (force) setAnalysis(null)
 
     const url = `/api/ai-analysis?symbol=${encodeURIComponent(symbol)}&price=${price}&changePct=${changePct}`
-
     fetch(url, { signal: ctrl.signal })
       .then(res => {
-        if (!res.ok) return res.json().then(e => { throw new Error(e.error ?? `HTTP ${res.status}`) })
+        if (!res.ok) return res.json().then((e: { error?: string }) => { throw new Error(e.error ?? `HTTP ${res.status}`) })
         return res.json()
       })
       .then((data: AIAnalysis) => {
+        analysisCache.set(symbol, data)
         setAnalysis(data)
         setLoading(false)
       })
@@ -118,10 +117,23 @@ export function AIAnalysisPanel({ symbol, price, changePct, panelNum = 4 }: Prop
         setError(err.message ?? 'Ismeretlen hiba')
         setLoading(false)
       })
+  }, [symbol, price, changePct])
 
-    return () => ctrl.abort()
+  // Szimbólum váltáskor: csak ha nincs cache
+  useEffect(() => {
+    const cached = analysisCache.get(symbol)
+    if (cached) {
+      setAnalysis(cached)
+      setError(null)
+      setLoading(false)
+    } else {
+      fetchAnalysis(false)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol])
+
+  const ratingColor = analysis ? (RATING_COLORS[analysis.rating] ?? '#FFA500') : '#444'
+  const isUp = changePct >= 0
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'kutatas', label: 'KUTATÁS' },
@@ -129,59 +141,61 @@ export function AIAnalysisPanel({ symbol, price, changePct, panelNum = 4 }: Prop
     { id: 'social',  label: 'SOCIAL'  },
   ]
 
-  const ratingColor = analysis ? (RATING_COLORS[analysis.rating] ?? '#FFA500') : '#444'
-  const isUp = changePct >= 0
-
   return (
     <div className="bb-panel">
-      {/* Header */}
+      {/* Fejléc */}
       <div className="bb-panel-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span className="panel-num">{panelNum}</span>
           <span>AI — Mesterséges intelligencia elemzés</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {loading && <span style={{ color: '#FF8C00', fontSize: 9, animation: 'none' }}>◌</span>}
+          {loading && <span style={{ color: '#FF8C00', fontSize: 10 }}>◌</span>}
           <span style={{ background: '#FF8C00', color: '#000', fontSize: 9, padding: '1px 6px', fontWeight: 'bold' }}>AI ▾</span>
         </div>
       </div>
 
-      {/* Sub-header */}
+      {/* Sub-fejléc: szimbólum + időbélyeg + frissítés */}
       <div style={{
         background: '#0a0a0a', borderBottom: '1px solid #1a1a1a',
         padding: '3px 8px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
       }}>
         <span style={{ color: '#FFD700', fontSize: 10, fontWeight: 'bold' }}>{symbol}</span>
-        <span style={{ fontSize: 9, color: '#333' }}>Tavily</span>
-        <span style={{ fontSize: 9, color: '#222' }}>+</span>
-        <span style={{ fontSize: 9, color: '#333' }}>Claude</span>
-        {analysis && (
-          <span style={{ color: '#2a2a2a', fontSize: 9 }}>
-            ⊙ {timeSince(analysis.generatedAt)}
+        <span style={{ fontSize: 9, color: '#2a2a2a' }}>Tavily + Claude</span>
+
+        {/* Időbélyeg */}
+        {analysis && !loading && (
+          <span style={{
+            fontSize: 9, color: '#3a3a3a',
+            background: '#111', border: '1px solid #1e1e1e',
+            padding: '0 5px',
+          }}>
+            ⊙ {formatGeneratedAt(analysis.generatedAt)}
           </span>
         )}
+        {loading && (
+          <span style={{ fontSize: 9, color: '#444' }}>elemzés folyamatban{dots}</span>
+        )}
+
         <div style={{ flex: 1 }} />
+
+        {/* Frissítés gomb – ez az EGYETLEN trigger az új lekérdezésre */}
         <button
-          onClick={() => {
-            setAnalysis(null)
-            setError(null)
-            setLoading(true)
-            const url = `/api/ai-analysis?symbol=${encodeURIComponent(symbol)}&price=${price}&changePct=${changePct}&t=${Date.now()}`
-            fetch(url)
-              .then(r => r.json())
-              .then((data: AIAnalysis) => { setAnalysis(data); setLoading(false) })
-              .catch(err => { setError(err.message); setLoading(false) })
-          }}
+          onClick={() => fetchAnalysis(true)}
+          disabled={loading}
           style={{
-            background: '#1a1000', border: '1px solid #3a2000', color: '#FF8C00',
-            fontSize: 9, padding: '0 6px', cursor: 'pointer', fontFamily: 'Courier New',
+            background: loading ? '#0a0a0a' : '#1a1000',
+            border: `1px solid ${loading ? '#222' : '#3a2000'}`,
+            color: loading ? '#333' : '#FF8C00',
+            fontSize: 9, padding: '0 6px', cursor: loading ? 'default' : 'pointer',
+            fontFamily: 'Courier New',
           }}
         >
           ↻ Frissítés
         </button>
       </div>
 
-      {/* Tabs */}
+      {/* Tabok */}
       <div style={{ display: 'flex', borderBottom: '1px solid #1a1a1a', background: '#050505', flexShrink: 0 }}>
         {tabs.map(t => (
           <button
@@ -207,19 +221,19 @@ export function AIAnalysisPanel({ symbol, price, changePct, panelNum = 4 }: Prop
         ))}
       </div>
 
-      {/* Body */}
+      {/* Tartalom */}
       <div className="bb-panel-body" style={{ padding: '4px 8px 8px' }}>
 
-        {/* ── LOADING ── */}
-        {loading && (
+        {/* Betöltés */}
+        {loading && !analysis && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 120, gap: 8 }}>
             <div style={{ color: '#FF8C00', fontSize: 11 }}>◌ AI elemzés{dots}</div>
-            <div style={{ color: '#2a2a2a', fontSize: 9 }}>Tavily keresés → Claude szintézis</div>
+            <div style={{ color: '#2a2a2a', fontSize: 9 }}>Tavily webes keresés → Claude szintézis</div>
             <div style={{ color: '#1a1a1a', fontSize: 9 }}>{symbol} · valós idejű adatok</div>
           </div>
         )}
 
-        {/* ── ERROR ── */}
+        {/* Hiba */}
         {!loading && error && (
           <div style={{ padding: '12px 8px' }}>
             <div style={{ color: '#FF3333', fontSize: 10, marginBottom: 6 }}>⚠ Elemzés sikertelen</div>
@@ -230,16 +244,15 @@ export function AIAnalysisPanel({ symbol, price, changePct, panelNum = 4 }: Prop
           </div>
         )}
 
-        {/* ── DATA ── */}
-        {!loading && !error && analysis && (
+        {/* Adat */}
+        {analysis && (
           <>
             {/* ─── KUTATÁS ─── */}
             {activeTab === 'kutatas' && (
               <div>
-                {/* Tavily AI összefoglaló */}
                 {analysis.tavilyAnswer && (
                   <>
-                    <Sec title="Tavily AI összefoglaló" />
+                    <Sec title="Piaci összefoglaló" />
                     <div style={{
                       color: '#888', fontSize: 10, lineHeight: 1.6,
                       background: '#080808', border: '1px solid #141414',
@@ -252,9 +265,9 @@ export function AIAnalysisPanel({ symbol, price, changePct, panelNum = 4 }: Prop
 
                 <Sec title="Elemzői konszenzus" />
                 {[
-                  { label: 'VÉTEL',   count: analysis.analysts.bull, color: '#00FF41' },
-                  { label: 'TART',    count: analysis.analysts.hold, color: '#FFA500' },
-                  { label: 'ELADÁS',  count: analysis.analysts.sell, color: '#FF3333' },
+                  { label: 'VÉTEL',  count: analysis.analysts.bull, color: '#00FF41' },
+                  { label: 'TART',   count: analysis.analysts.hold, color: '#FFA500' },
+                  { label: 'ELADÁS', count: analysis.analysts.sell, color: '#FF3333' },
                 ].map(r => {
                   const total = analysis.analysts.bull + analysis.analysts.hold + analysis.analysts.sell
                   return (
@@ -270,9 +283,9 @@ export function AIAnalysisPanel({ symbol, price, changePct, panelNum = 4 }: Prop
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 8 }}>
                   {[
-                    { label: 'KONSZENZUS', val: analysis.rating,               color: ratingColor },
-                    { label: '12H CÉLÁR',  val: fmt(analysis.targetPrice),     color: '#FFA500'   },
-                    { label: 'BIZALOM',    val: analysis.confidence + '%',      color: analysis.confidence > 68 ? '#00FF41' : analysis.confidence > 54 ? '#FFA500' : '#FF3333' },
+                    { label: 'KONSZENZUS', val: analysis.rating,          color: ratingColor },
+                    { label: '12H CÉLÁR',  val: fmt(analysis.targetPrice), color: '#FFA500'  },
+                    { label: 'BIZALOM',    val: analysis.confidence + '%', color: analysis.confidence > 68 ? '#00FF41' : analysis.confidence > 54 ? '#FFA500' : '#FF3333' },
                     { label: 'ELEMZŐK',    val: `${analysis.analysts.bull + analysis.analysts.hold + analysis.analysts.sell} fő`, color: '#DEDEDE' },
                   ].map(b => (
                     <div key={b.label} style={{ background: '#0c0c0c', border: '1px solid #1a1a1a', padding: '4px 7px' }}>
@@ -282,13 +295,15 @@ export function AIAnalysisPanel({ symbol, price, changePct, panelNum = 4 }: Prop
                   ))}
                 </div>
 
-                <Sec title="Katalizátorok & kockázatok" />
+                <Sec title="Katalizátorok" />
                 {analysis.catalysts.map((c, i) => (
                   <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4, borderBottom: '1px solid #0d0d0d', paddingBottom: 4 }}>
                     <span style={{ color: '#00FF41', fontSize: 10, flexShrink: 0 }}>▲</span>
                     <span style={{ color: '#777', fontSize: 10, lineHeight: 1.4 }}>{c}</span>
                   </div>
                 ))}
+
+                <Sec title="Kockázatok" />
                 {analysis.risks.map((r, i) => (
                   <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4, borderBottom: '1px solid #0d0d0d', paddingBottom: 4 }}>
                     <span style={{ color: '#FF3333', fontSize: 10, flexShrink: 0 }}>▼</span>
@@ -308,8 +323,7 @@ export function AIAnalysisPanel({ symbol, price, changePct, panelNum = 4 }: Prop
                       <div style={{ color: '#999', fontSize: 10, lineHeight: 1.4 }}>
                         {n.url
                           ? <a href={n.url} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>{n.text}</a>
-                          : n.text
-                        }
+                          : n.text}
                       </div>
                     </div>
                   </div>
@@ -323,14 +337,14 @@ export function AIAnalysisPanel({ symbol, price, changePct, panelNum = 4 }: Prop
                 <div style={{ padding: '6px 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
                   <div style={{
                     background: ratingColor + '22', border: `1px solid ${ratingColor}55`,
-                    padding: '3px 14px', display: 'inline-block',
+                    padding: '3px 14px',
                   }}>
                     <span style={{ color: ratingColor, fontSize: 15, fontWeight: 'bold', letterSpacing: '0.05em' }}>
                       — {analysis.rating}
                     </span>
                   </div>
                   <div style={{ color: '#2a2a2a', fontSize: 9 }}>
-                    {symbol} · Tavily + Claude · {new Date(analysis.generatedAt).toLocaleDateString('hu-HU')}
+                    {symbol} · {formatGeneratedAt(analysis.generatedAt)}
                   </div>
                 </div>
 
@@ -339,35 +353,37 @@ export function AIAnalysisPanel({ symbol, price, changePct, panelNum = 4 }: Prop
                   <span style={{ color: '#FFA500', fontSize: 10, fontWeight: 'bold', width: 32 }}>{analysis.confidence}%</span>
                 </div>
 
-                {/* Three target columns */}
+                {/* Három célár oszlop */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, marginBottom: 8 }}>
                   {[
-                    { label: 'Rövid táv',  desc: '1–4 hét',    price: analysis.shortTarget, view: analysis.shortView, color: VIEW_COLORS[analysis.shortView] ?? '#FFA500' },
-                    { label: 'Közép táv',  desc: '1–3 hónap',  price: analysis.midTarget,   view: analysis.midView,   color: VIEW_COLORS[analysis.midView]   ?? '#FFA500' },
-                    { label: 'Hosszú táv', desc: '6–12 hónap', price: analysis.longTarget,  view: analysis.longView,  color: VIEW_COLORS[analysis.longView]  ?? '#FFA500' },
-                  ].map(col => (
-                    <div key={col.label} style={{
-                      background: '#0c0c0c', border: '1px solid #1a1a1a',
-                      padding: '8px 6px', textAlign: 'center',
-                      borderTop: `2px solid ${col.color}`,
-                    }}>
-                      <div style={{ color: '#444', fontSize: 8, letterSpacing: '0.06em', marginBottom: 3 }}>{col.label.toUpperCase()}</div>
-                      <div style={{ color: col.color, fontSize: 14, fontWeight: 'bold', marginBottom: 2 }}>{fmt(col.price)}</div>
-                      <div style={{ color: '#333', fontSize: 8 }}>{col.desc}</div>
-                      <div style={{ color: '#333', fontSize: 8, marginTop: 2 }}>
-                        {col.price > price ? '+' : ''}{pctDiff(col.price, price)}
+                    { label: 'Rövid táv',  desc: '1–4 hét',    p: analysis.shortTarget, view: analysis.shortView },
+                    { label: 'Közép táv',  desc: '1–3 hónap',  p: analysis.midTarget,   view: analysis.midView   },
+                    { label: 'Hosszú táv', desc: '6–12 hónap', p: analysis.longTarget,  view: analysis.longView  },
+                  ].map(col => {
+                    const c = VIEW_COLORS[col.view] ?? '#FFA500'
+                    return (
+                      <div key={col.label} style={{
+                        background: '#0c0c0c', border: '1px solid #1a1a1a',
+                        padding: '8px 6px', textAlign: 'center', borderTop: `2px solid ${c}`,
+                      }}>
+                        <div style={{ color: '#444', fontSize: 8, letterSpacing: '0.06em', marginBottom: 3 }}>{col.label.toUpperCase()}</div>
+                        <div style={{ color: c, fontSize: 14, fontWeight: 'bold', marginBottom: 2 }}>{fmt(col.p)}</div>
+                        <div style={{ color: '#333', fontSize: 8 }}>{col.desc}</div>
+                        <div style={{ color: '#333', fontSize: 8, marginTop: 2 }}>
+                          {col.p > price ? '+' : ''}{pctDiff(col.p, price)}
+                        </div>
+                        <div style={{ marginTop: 4 }}>
+                          <Badge text={col.view} color={c} />
+                        </div>
                       </div>
-                      <div style={{ marginTop: 4 }}>
-                        <Badge text={col.view} color={col.color} />
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
 
                 <Sec title="Belépési & kilépési szintek" />
                 {[
                   { label: 'BELÉPÉSI ZÓNA', val: `${fmt(analysis.entryMin)} – ${fmt(analysis.entryMax)}`, color: '#00BFFF', pct: null },
-                  { label: 'STOP LOSS',     val: fmt(analysis.stopLoss),  color: '#FF3333', pct: pctDiff(analysis.stopLoss, price) },
+                  { label: 'STOP LOSS',     val: fmt(analysis.stopLoss),    color: '#FF3333', pct: pctDiff(analysis.stopLoss, price)    },
                   { label: '12H CÉLÁR',     val: fmt(analysis.targetPrice), color: '#FFA500', pct: pctDiff(analysis.targetPrice, price) },
                 ].map(row => (
                   <div key={row.label} style={{
@@ -386,8 +402,7 @@ export function AIAnalysisPanel({ symbol, price, changePct, panelNum = 4 }: Prop
                 <Sec title="AI elemzés" />
                 <div style={{
                   color: '#888', fontSize: 10, lineHeight: 1.7,
-                  background: '#0a0a0a', border: '1px solid #141414',
-                  padding: '8px 10px',
+                  background: '#0a0a0a', border: '1px solid #141414', padding: '8px 10px',
                 }}>
                   <strong style={{ color: '#FFA500' }}>
                     {symbol} · {fmt(price)} · {isUp ? '+' : ''}{changePct.toFixed(2)}%
@@ -406,7 +421,7 @@ export function AIAnalysisPanel({ symbol, price, changePct, panelNum = 4 }: Prop
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <span style={{ color: '#444', fontSize: 9 }}>PIACI HANGULAT</span>
                     <Badge
-                      text={analysis.sentiment.overall > 62 ? 'BULLISH' : analysis.sentiment.overall > 47 ? 'SEMLEGES' : 'BEARISH'}
+                      text={analysis.sentiment.overall > 62 ? 'EMELKEDŐ' : analysis.sentiment.overall > 47 ? 'SEMLEGES' : 'CSÖKKENŐ'}
                       color={analysis.sentiment.overall > 62 ? '#00FF41' : analysis.sentiment.overall > 47 ? '#FFA500' : '#FF3333'}
                     />
                   </div>
@@ -437,7 +452,7 @@ export function AIAnalysisPanel({ symbol, price, changePct, panelNum = 4 }: Prop
                   )
                 })}
 
-                <Sec title="Trending bejegyzések" />
+                <Sec title="Legfrissebb hírek" />
                 {analysis.news.map((n, i) => (
                   <div key={i} style={{ background: '#0c0c0c', border: '1px solid #141414', padding: '5px 8px', marginBottom: 4 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
@@ -450,16 +465,15 @@ export function AIAnalysisPanel({ symbol, price, changePct, panelNum = 4 }: Prop
                       </span>
                       {n.url
                         ? <a href={n.url} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>{n.text}</a>
-                        : n.text
-                      }
+                        : n.text}
                     </div>
                   </div>
                 ))}
 
                 <Sec title="Adatforrás" />
-                <div style={{ color: '#2a2a2a', fontSize: 9, lineHeight: 1.8 }}>
+                <div style={{ color: '#2a2a2a', fontSize: 9, lineHeight: 1.9 }}>
                   <div>Keresőmotor: Tavily Web Search API</div>
-                  <div>Szintézis: Anthropic Claude 3.5 Haiku</div>
+                  <div>Szintézis: Anthropic Claude AI</div>
                   <div>Generálva: {new Date(analysis.generatedAt).toLocaleString('hu-HU')}</div>
                 </div>
               </div>
@@ -467,13 +481,12 @@ export function AIAnalysisPanel({ symbol, price, changePct, panelNum = 4 }: Prop
           </>
         )}
 
-        {/* Empty state */}
+        {/* Üres állapot */}
         {!loading && !error && !analysis && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 80 }}>
             <span style={{ color: '#2a2a2a', fontSize: 10 }}>Válassz szimbólumot az elemzéshez</span>
           </div>
         )}
-
       </div>
     </div>
   )

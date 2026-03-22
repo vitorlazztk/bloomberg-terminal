@@ -104,7 +104,7 @@ async function synthesizeWithClaude(
     )
     .join('\n\n---\n\n')
 
-  const prompt = `Te egy professzionális pénzügyi elemző vagy. Elemezd az alábbi értékpapírt a webes keresési eredmények alapján, és adj visszA KIZÁRÓLAG érvényes JSON-t.
+  const prompt = `Te egy professzionális magyar pénzügyi elemző vagy. MINDEN szöveges mezőt KIZÁRÓLAG MAGYARUL írj – még ha az eredeti forrás angol is!
 
 Szimbólum: ${symbol}
 Jelenlegi ár: ${price}
@@ -116,7 +116,7 @@ ${tavily.answer ?? 'Nem elérhető'}
 === KERESÉSI EREDMÉNYEK ===
 ${newsSnippets}
 
-Válaszolj KIZÁRÓLAG az alábbi JSON struktúrával, semmilyen más szöveget NE írj!
+Válaszolj KIZÁRÓLAG az alábbi JSON struktúrával, semmilyen más szöveget NE írj előtte vagy utána!
 
 {
   "rating": "<ERŐS VÉTEL | VÉTEL | TART | ELADÁS>",
@@ -132,22 +132,24 @@ Válaszolj KIZÁRÓLAG az alábbi JSON struktúrával, semmilyen más szöveget 
   "entryMin": <ajánlott belépési ár alsó határ, szám>,
   "entryMax": <ajánlott belépési ár felső határ, szám>,
   "stopLoss": <stop loss szint, szám>,
-  "catalysts": ["katalizátor 1", "katalizátor 2", "katalizátor 3"],
-  "risks": ["kockázat 1", "kockázat 2", "kockázat 3"],
-  "summary": "<2-3 mondatos összefoglaló elemzés magyarul, a hírek alapján>",
+  "catalysts": ["MAGYARUL írt katalizátor 1", "MAGYARUL írt katalizátor 2", "MAGYARUL írt katalizátor 3"],
+  "risks": ["MAGYARUL írt kockázat 1", "MAGYARUL írt kockázat 2", "MAGYARUL írt kockázat 3"],
+  "summary": "<2-3 mondatos összefoglaló MAGYARUL, a hírek alapján, szakmai hangvételű>",
+  "tavilyAnswer": "<A Tavily összefoglaló MAGYARUL fordítva/összefoglalva, 1-2 mondat>",
   "sentiment": { "overall": <0–100>, "reddit": <0–100>, "twitter": <0–100>, "forum": <0–100> },
   "news": [
-    { "time": "<HH:MM vagy 'Tegnap' vagy dátum>", "source": "<forrás domain neve>", "text": "<hír tömör összefoglalója magyarul, max 90 karakter>", "up": <true | false | null>, "url": "<eredeti url>" }
+    { "time": "<HH:MM vagy 'Tegnap'>", "source": "<forrás neve röviden>", "text": "<hír MAGYAR NYELVŰ összefoglalója, max 90 karakter>", "up": <true | false | null>, "url": "<eredeti url>" }
   ]
 }
 
 Szabályok:
+- MINDEN szöveges mező (catalysts, risks, summary, tavilyAnswer, news[].text) CSAK MAGYARUL lehet
 - analysts összege legyen 18–24 között
-- A célárakat realisztikusan, a jelenlegi ${price} árhoz képest határozd meg a hírek tónusa alapján
-- news tömbben pontosan 4 elem legyen, a tényleges keresési eredményekből
+- A célárakat realisztikusan, a jelenlegi ${price} árhoz képest határozd meg
+- news tömbben pontosan 4 elem legyen a tényleges keresési eredményekből
 - sentiment értékek 38–85 között legyenek
 - Ha a hír pozitív: up=true, ha negatív: up=false, ha semleges: up=null
-- Csak érvényes JSON-t adj vissza, magyarázat nélkül`
+- Csak érvényes JSON-t adj vissza, semmi más szöveg!`
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
