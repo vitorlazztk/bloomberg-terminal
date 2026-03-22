@@ -1,5 +1,42 @@
 import { NextResponse } from 'next/server'
 
+// Automatically picks the best available Claude model for this API key
+let cachedModel: string | null = null
+
+async function getModel(): Promise<string> {
+  if (cachedModel) return cachedModel
+
+  // Allow manual override via env
+  if (process.env.ANTHROPIC_MODEL) {
+    cachedModel = process.env.ANTHROPIC_MODEL
+    return cachedModel
+  }
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/models', {
+      headers: {
+        'x-api-key':         process.env.ANTHROPIC_API_KEY ?? '',
+        'anthropic-version': '2023-06-01',
+      },
+      signal: AbortSignal.timeout(6000),
+    })
+    if (res.ok) {
+      const json = await res.json()
+      const ids: string[] = (json.data ?? []).map((m: { id: string }) => m.id)
+      // Prefer: haiku (cheapest/fastest) → sonnet → anything
+      const pick =
+        ids.find(id => id.toLowerCase().includes('haiku'))   ??
+        ids.find(id => id.toLowerCase().includes('sonnet'))  ??
+        ids[0]
+      if (pick) { cachedModel = pick; return pick }
+    }
+  } catch { /* fall through */ }
+
+  // Last-resort fallback
+  cachedModel = 'claude-3-haiku-20240307'
+  return cachedModel
+}
+
 export interface AIAnalysis {
   rating: string
   confidence: number
@@ -120,7 +157,7 @@ Szabályok:
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'claude-3-haiku-20240307',
+      model: await getModel(),
       max_tokens: 1500,
       messages: [{ role: 'user', content: prompt }],
     }),
@@ -129,7 +166,8 @@ Szabályok:
 
   if (!res.ok) {
     const errText = await res.text()
-    throw new Error(`Claude API hiba: ${res.status} – ${errText.slice(0, 200)}`)
+    const usedModel = await getModel()
+    throw new Error(`Claude API hiba: ${res.status} (modell: ${usedModel}) – ${errText.slice(0, 200)}`)
   }
 
   const json = await res.json()
