@@ -11,13 +11,14 @@ import { AIAnalysisPanel } from '@/components/panels/AIAnalysisPanel'
 import { WatchlistPanel }  from '@/components/panels/WatchlistPanel'
 import { NewsPanel }       from '@/components/panels/NewsPanel'
 import { FXPanel }         from '@/components/panels/FXPanel'
+import { BUXPanel }        from '@/components/panels/BUXPanel'
 import { MarketOverviewPanel } from '@/components/panels/MarketOverviewPanel'
 import { useSimulatedPrices }  from '@/hooks/useSimulatedPrices'
 import { useLivePrices, useLiveFX, mergePrices } from '@/hooks/useLiveData'
 import { TickerData, FXRate }  from '@/lib/types'
 import {
   EQUITY_TICKERS, INDEX_TICKERS, FX_RATES,
-  CRYPTO_TICKERS, COMMODITY_TICKERS, MOCK_NEWS,
+  CRYPTO_TICKERS, COMMODITY_TICKERS, MOCK_NEWS, BUX_TICKERS,
 } from '@/lib/mockData'
 
 // ── Layout types ──────────────────────────────────────────────────────────────
@@ -27,6 +28,7 @@ type Layout =
   | 'focus-news'    // news + sidebar
   | 'focus-fx'      // FX list + chart (when pair selected)
   | 'focus-ai'      // sidebar + AI panel
+  | 'focus-bux'     // BÉT panel + chart
 
 interface ChartItem {
   symbol: string
@@ -50,15 +52,17 @@ export default function Page() {
   const [bottomCat,    setBottomCat]    = useState<BottomCategory>('DEVIZA')
 
   // ── Simulated prices (smooth real-time feel) ──────────────────────────────
-  const { tickers: simEquities, flashMap: eqFlash } = useSimulatedPrices(EQUITY_TICKERS, 1000)
-  const { tickers: simIndices,  flashMap: idxFlash } = useSimulatedPrices(INDEX_TICKERS,  1500)
+  const { tickers: simEquities, flashMap: eqFlash }  = useSimulatedPrices(EQUITY_TICKERS, 1000)
+  const { tickers: simIndices,  flashMap: idxFlash }  = useSimulatedPrices(INDEX_TICKERS,  1500)
+  const { tickers: simBux,      flashMap: buxFlash }  = useSimulatedPrices(BUX_TICKERS,    1200)
 
   // ── Live prices from Yahoo Finance (corrects simulation every 60s) ─────────
   const { priceMap, source: priceSource } = useLivePrices(60_000)
 
   // Merge: live prices correct the simulated baseline
-  const equities = mergePrices(simEquities, priceMap)
-  const indices  = mergePrices(simIndices,  priceMap)
+  const equities  = mergePrices(simEquities, priceMap)
+  const indices   = mergePrices(simIndices,  priceMap)
+  const buxTickers = mergePrices(simBux,     priceMap)
 
   // ── Live FX rates from Frankfurter/ECB ───────────────────────────────────
   const { rates: fxRates } = useLiveFX(FX_RATES, 60_000)
@@ -100,7 +104,7 @@ export default function Page() {
       setLayout('focus-chart')
     } else if (first === 'BUX') {
       setBottomCat('BUX')
-      setLayout('focus-chart')
+      setLayout('focus-bux')
     } else if (first === 'GP' || parts.some(p => p === 'GP')) {
       setLayout('focus-chart')
     } else if (first === 'BACK' || first === 'MENU' || first === 'ESC' || first === 'IMAP') {
@@ -120,7 +124,7 @@ export default function Page() {
     if (tag === 'INPUT' || tag === 'TEXTAREA') return
     const map: Record<string, string> = {
       F2: 'STOCK', F3: 'FXC', F4: 'BONDS', F5: 'CMDTY',
-      F6: 'AI', F8: 'WEI', F9: 'TOP', F10: 'GP', Escape: 'BACK',
+      F6: 'AI', F7: 'BUX', F8: 'WEI', F9: 'TOP', F10: 'GP', Escape: 'BACK',
     }
     if (map[e.key]) { e.preventDefault(); handleCommand(map[e.key]) }
   }, [handleCommand])
@@ -165,14 +169,14 @@ export default function Page() {
     else if (cat === 'DEVIZA') setLayout('focus-fx')
     else if (cat === 'RÉSZVÉNY' || cat === 'STOCK') setLayout('focus-chart')
     else if (cat === 'NYERSANYAG')                   setLayout('focus-chart')
-    else if (cat === 'BUX')                          setLayout('focus-chart')
+    else if (cat === 'BUX')                          setLayout('focus-bux')
   }, [])
 
   // ── Loaded symbol label ───────────────────────────────────────────────────
   const loadedSymbol = selectedPair ?? chartItem.symbol
 
   // ── Layout panel number ───────────────────────────────────────────────────
-  const panelNum = layout === 'default' ? 1 : 2
+  const panelNum = layout === 'default' ? 1 : layout === 'focus-bux' ? 2 : 2
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#000' }}>
@@ -278,6 +282,29 @@ export default function Page() {
           </div>
         )}
 
+        {/* ═══ FOCUS-BUX ═══════════════════════════════════════════════════════ */}
+        {layout === 'focus-bux' && (() => {
+          const buxIndex = indices.find(t => t.symbol === 'BUX') ?? buxTickers[0]
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', height: '100%', gap: 1, background: '#111' }}>
+              <BUXPanel
+                buxIndex={buxIndex ?? { symbol: 'BUX', name: 'BUX Index', price: 85420, prevPrice: 84210, change: 1210, changePct: 1.44, volume: 0, type: 'index' }}
+                tickers={buxTickers}
+                flashMap={buxFlash}
+                onSelect={(t) => { setChartItem(tickerToChart(t)); setSelectedPair(undefined) }}
+                selectedSymbol={chartItem.symbol}
+                panelNum={2}
+              />
+              <ChartPanel
+                symbol={chartItem.symbol}
+                price={chartItem.price}
+                changePct={chartItem.changePct}
+                panelNum={3}
+              />
+            </div>
+          )
+        })()}
+
         {/* ═══ FOCUS-AI ════════════════════════════════════════════════════════ */}
         {layout === 'focus-ai' && (
           <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', height: '100%', gap: 1, background: '#111' }}>
@@ -299,7 +326,7 @@ export default function Page() {
         activeCategory={bottomCat}
         onCategory={handleCategory}
         panelCount={4}
-        activePanel={layout === 'default' ? 1 : layout === 'focus-chart' ? 2 : layout === 'focus-fx' ? 3 : 4}
+        activePanel={layout === 'default' ? 1 : layout === 'focus-chart' ? 2 : layout === 'focus-fx' ? 3 : layout === 'focus-bux' ? 2 : 4}
       />
     </div>
   )

@@ -12,6 +12,17 @@ export const DISPLAY_TO_YF: Record<string, string> = {
   'FCHI':  '^FCHI',
   'N225':  '^N225',
   'HSI':   '^HSI',
+  'BUX':   '^BUX',
+
+  // BÉT – Budapest Értéktőzsde
+  'OTP':        'OTP.BD',
+  'MOL':        'MOL.BD',
+  'RICHTER':    'RICHTER.BD',
+  'MTELEKOM':   'MTELEKOM.BD',
+  '4iG':        '4IG.BD',
+  'OPUS':       'OPUS.BD',
+  'AUTOWALLIS': 'AUTOWALLIS.BD',
+  'ORMESTER':   'ORMESTER.BD',
 
   // US Equities
   'AAPL':  'AAPL',
@@ -71,9 +82,11 @@ export function toDisplay(yf: string): string {
 // All symbols to pre-fetch on startup
 export const ALL_QUOTE_SYMBOLS = [
   // Indices
-  '^GSPC', '^IXIC', '^DJI', '^VIX', '^FTSE', '^GDAXI', '^FCHI', '^N225', '^HSI',
+  '^GSPC', '^IXIC', '^DJI', '^VIX', '^FTSE', '^GDAXI', '^FCHI', '^N225', '^HSI', '^BUX',
   // Equities
   'AAPL', 'MSFT', 'NVDA', 'TSLA', 'AMZN', 'META', 'GOOGL', 'BRK-B', 'JPM', 'V',
+  // BÉT equities
+  'OTP.BD', 'MOL.BD', 'RICHTER.BD', 'MTELEKOM.BD', '4IG.BD', 'OPUS.BD',
   // FX
   'EURUSD=X', 'GBPUSD=X', 'USDJPY=X', 'USDCHF=X', 'AUDUSD=X', 'USDCAD=X',
   'EURHUF=X', 'USDHUF=X', 'EURGBP=X', 'EURJPY=X', 'GBPJPY=X', 'EURCHF=X',
