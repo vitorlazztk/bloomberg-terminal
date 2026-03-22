@@ -1,5 +1,5 @@
 export function formatPrice(val: number, decimals = 2): string {
-  if (!isFinite(val)) return '—'
+  if (!isFinite(val) || val === 0) return '—'
   return val.toLocaleString('en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,

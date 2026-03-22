@@ -11,6 +11,7 @@ interface Props {
 }
 
 function fmtPrice(p: number, decimals?: number): string {
+  if (!p || p <= 0) return '—'
   if (decimals !== undefined) return p.toFixed(decimals)
   if (p >= 1000) return p.toLocaleString('hu-HU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
   if (p >= 10)   return p.toFixed(2)
@@ -139,7 +140,7 @@ export function BUXPanel({ buxIndex, tickers, flashMap, onSelect, selectedSymbol
 
               {/* Price */}
               <span style={{
-                color: up ? upColor : downColor,
+                color: t.price > 0 ? (up ? upColor : downColor) : '#333',
                 fontSize: 11, textAlign: 'right', fontWeight: 'bold',
               }}>
                 {fmtPrice(t.price)}
@@ -147,10 +148,10 @@ export function BUXPanel({ buxIndex, tickers, flashMap, onSelect, selectedSymbol
 
               {/* Change % */}
               <span style={{
-                color: up ? upColor : downColor,
+                color: t.price > 0 ? (up ? upColor : downColor) : '#333',
                 fontSize: 10, textAlign: 'right',
               }}>
-                {up ? '+' : ''}{t.changePct.toFixed(2)}%
+                {t.price > 0 ? `${up ? '+' : ''}${t.changePct.toFixed(2)}%` : '—'}
               </span>
 
               {/* Volume */}

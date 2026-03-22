@@ -46,11 +46,19 @@ export function FXCPanel({ rates, onSelect, selectedPair, panelNum = 2 }: Props)
             </tr>
           </thead>
           <tbody>
+            {rates.length === 0 && (
+              <tr>
+                <td colSpan={5} style={{ color: '#333', textAlign: 'center', padding: '12px 0', fontSize: 10 }}>
+                  ◌ Árfolyamok betöltése…
+                </td>
+              </tr>
+            )}
             {rates.map(r => {
               const d = decimals(r.rate)
               const isUp = r.changePct >= 0
               const isSelected = selectedPair === r.pair
               const isHuf = r.pair.includes('HUF')
+              const noData = !r.rate || r.rate <= 0
 
               return (
                 <tr
@@ -60,29 +68,29 @@ export function FXCPanel({ rates, onSelect, selectedPair, panelNum = 2 }: Props)
                   style={{ cursor: 'pointer' }}
                 >
                   <td style={{
-                    color: isSelected ? '#FFD700' : isHuf ? '#FFA500' : '#FFA500',
+                    color: isSelected ? '#FFD700' : '#FFA500',
                     fontWeight: 'bold',
                     background: isHuf && !isSelected ? '#0d0800' : undefined,
                   }}>
                     {r.pair}
                   </td>
                   <td style={{
-                    color: '#DEDEDE', fontWeight: 'bold',
+                    color: noData ? '#333' : '#DEDEDE', fontWeight: 'bold',
                     background: isHuf && !isSelected ? '#0d0800' : undefined,
                   }}>
-                    {r.rate.toFixed(d)}
+                    {noData ? '—' : r.rate.toFixed(d)}
                   </td>
                   <td style={{
-                    color: isUp ? '#00FF41' : '#FF3333',
+                    color: noData ? '#333' : isUp ? '#00FF41' : '#FF3333',
                     background: isHuf && !isSelected ? '#0d0800' : undefined,
                   }}>
-                    {isUp ? '▲' : '▼'} {Math.abs(r.change).toFixed(d)}
+                    {noData ? '—' : `${isUp ? '▲' : '▼'} ${Math.abs(r.change).toFixed(d)}`}
                   </td>
                   <td style={{
-                    color: isUp ? '#00FF41' : '#FF3333', fontWeight: 'bold',
+                    color: noData ? '#333' : isUp ? '#00FF41' : '#FF3333', fontWeight: 'bold',
                     background: isHuf && !isSelected ? '#0d0800' : undefined,
                   }}>
-                    {isUp ? '+' : ''}{r.changePct.toFixed(2)}%
+                    {noData ? '—' : `${isUp ? '+' : ''}${r.changePct.toFixed(2)}%`}
                   </td>
                   <td style={{
                     textAlign: 'center',

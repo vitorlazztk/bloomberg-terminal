@@ -1,9 +1,9 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { TickerData, FXRate } from '@/lib/types'
 import { DISPLAY_TO_YF, YF_TO_DISPLAY, ALL_QUOTE_SYMBOLS } from '@/lib/symbols'
 
-export type DataSource = 'live' | 'sim'
+export type DataSource = 'live' | 'loading' | 'error'
 
 interface LivePrice {
   price: number
@@ -13,14 +13,12 @@ interface LivePrice {
 }
 
 /**
- * Fetches real prices from Yahoo Finance via /api/prices
+ * Fetches real prices from Yahoo Finance via /api/prices.
  * Returns a map: displaySymbol → LivePrice
- * Falls back to simulation on error
  */
 export function useLivePrices(intervalMs = 60_000) {
   const [priceMap, setPriceMap] = useState<Record<string, LivePrice>>({})
-  const [source, setSource] = useState<DataSource>('sim')
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [source,   setSource]   = useState<DataSource>('loading')
 
   const fetchPrices = useCallback(async () => {
     try {
@@ -36,22 +34,21 @@ export function useLivePrices(intervalMs = 60_000) {
 
       const map: Record<string, LivePrice> = {}
       data.forEach(item => {
-        // Map Yahoo Finance symbol back to display symbol
         const display = YF_TO_DISPLAY[item.symbol] ?? item.symbol
-        map[display] = {
-          price:      item.price,
-          change:     item.change,
-          changePct:  item.changePct,
-          prevClose:  item.prevClose,
+        if (item.price > 0) {
+          map[display] = {
+            price:     item.price,
+            change:    item.change,
+            changePct: item.changePct,
+            prevClose: item.prevClose,
+          }
         }
       })
 
       setPriceMap(map)
       setSource('live')
-      setLastUpdate(new Date())
     } catch {
-      // Keep previous data, mark as sim if never had live data
-      setSource(prev => prev === 'live' ? 'live' : 'sim')
+      setSource(prev => prev === 'live' ? 'live' : 'error')
     }
   }, [])
 
@@ -61,33 +58,62 @@ export function useLivePrices(intervalMs = 60_000) {
     return () => clearInterval(id)
   }, [fetchPrices, intervalMs])
 
-  return { priceMap, source, lastUpdate }
+  return { priceMap, source }
 }
 
 /**
- * Merges live prices into simulated ticker array.
- * Simulation provides smooth real-time feel; live prices correct the baseline.
+ * Applies live prices to a base ticker array.
+ * Tickers without live data get price=0 (displayed as "—" in UI).
  */
-export function mergePrices(simTickers: TickerData[], priceMap: Record<string, LivePrice>): TickerData[] {
-  return simTickers.map(t => {
+export function applyLivePrices(base: TickerData[], priceMap: Record<string, LivePrice>): TickerData[] {
+  return base.map(t => {
     const live = priceMap[t.symbol]
-    if (!live || live.price === 0) return t
+    if (!live) return { ...t, price: 0, change: 0, changePct: 0, prevPrice: 0 }
     return {
       ...t,
-      price:      live.price,
-      change:     live.change,
-      changePct:  live.changePct,
-      prevPrice:  live.prevClose,
+      price:     live.price,
+      change:    live.change,
+      changePct: live.changePct,
+      prevPrice: live.prevClose,
     }
   })
 }
 
 /**
- * Fetches real FX rates from /api/fx (Frankfurter / ECB data)
+ * Flash map: tracks which symbols changed price (for green/red flash animation).
+ * Keyed by display symbol.
  */
-export function useLiveFX(fallbackRates: FXRate[], intervalMs = 60_000) {
-  const [rates, setRates] = useState<FXRate[]>(fallbackRates)
-  const [source, setSource] = useState<DataSource>('sim')
+export function useFlashMap(priceMap: Record<string, LivePrice>) {
+  const [flashMap, setFlashMap] = useState<Record<string, 'up' | 'down' | ''>>({})
+  const prevRef = useRef<Record<string, number>>({})
+
+  useEffect(() => {
+    const flashes: Record<string, 'up' | 'down' | ''> = {}
+    for (const [sym, live] of Object.entries(priceMap)) {
+      const prev = prevRef.current[sym]
+      if (prev !== undefined && live.price !== prev && live.price > 0) {
+        flashes[sym] = live.price > prev ? 'up' : 'down'
+      }
+    }
+    prevRef.current = Object.fromEntries(
+      Object.entries(priceMap).map(([k, v]) => [k, v.price])
+    )
+    if (Object.keys(flashes).length > 0) {
+      setFlashMap(flashes)
+      setTimeout(() => setFlashMap({}), 700)
+    }
+  }, [priceMap])
+
+  return flashMap
+}
+
+/**
+ * Fetches real FX rates from /api/fx (Frankfurter / ECB data).
+ * Starts empty – no mock fallback.
+ */
+export function useLiveFX(intervalMs = 60_000) {
+  const [rates,  setRates]  = useState<FXRate[]>([])
+  const [source, setSource] = useState<DataSource>('loading')
 
   const fetchFX = useCallback(async () => {
     try {
@@ -99,22 +125,21 @@ export function useLiveFX(fallbackRates: FXRate[], intervalMs = 60_000) {
 
       if (!Array.isArray(data) || data.length === 0) throw new Error('empty')
 
-      // Merge with fallback (to keep all 12 pairs, even if Frankfurter doesn't have all)
-      setRates(prev =>
-        prev.map(existing => {
-          const live = data.find(d => d.pair === existing.pair)
-          if (!live || live.rate === 0) return existing
-          return {
-            ...existing,
-            rate:       live.rate,
-            change:     live.change,
-            changePct:  live.changePct,
-          }
-        })
+      setRates(
+        data
+          .filter(d => d.rate > 0)
+          .map(d => ({
+            pair:      d.pair,
+            base:      d.pair.split('/')[0],
+            quote:     d.pair.split('/')[1],
+            rate:      d.rate,
+            change:    d.change,
+            changePct: d.changePct,
+          }))
       )
       setSource('live')
     } catch {
-      setSource(prev => prev)
+      setSource(prev => prev === 'live' ? 'live' : 'error')
     }
   }, [])
 

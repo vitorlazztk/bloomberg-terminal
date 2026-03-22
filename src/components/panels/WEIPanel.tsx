@@ -11,6 +11,7 @@ interface Props {
 }
 
 function fmtPrice(p: number): string {
+  if (!p || p <= 0) return '—'
   if (p >= 10000) return p.toFixed(0)
   if (p >= 1000)  return p.toFixed(2)
   if (p >= 10)    return p.toFixed(2)
@@ -18,12 +19,14 @@ function fmtPrice(p: number): string {
 }
 
 function fmtChange(c: number, price: number): string {
+  if (!price || price <= 0) return '—'
   if (price >= 1000) return (c >= 0 ? '+' : '') + c.toFixed(2)
   if (price >= 10)   return (c >= 0 ? '+' : '') + c.toFixed(2)
   return (c >= 0 ? '+' : '') + c.toFixed(4)
 }
 
-function fmtPct(p: number): string {
+function fmtPct(p: number, price: number): string {
+  if (!price || price <= 0) return '—'
   return (p >= 0 ? '+' : '') + p.toFixed(2) + '%'
 }
 
@@ -92,12 +95,12 @@ export function WEIPanel({ indices, flashMap, onSelect, selectedSymbol, panelNum
                         {t.symbol}
                       </td>
                       <td style={{ color: '#666', textAlign: 'left' }}>{t.name}</td>
-                      <td style={{ color: '#DEDEDE', fontWeight: 'bold' }}>{fmtPrice(t.price)}</td>
-                      <td style={{ color: isUp ? '#00FF41' : '#FF3333' }}>
-                        {isUp ? '▲' : '▼'} {Math.abs(t.change).toFixed(t.price > 100 ? 2 : 4)}
+                      <td style={{ color: t.price > 0 ? '#DEDEDE' : '#333', fontWeight: 'bold' }}>{fmtPrice(t.price)}</td>
+                      <td style={{ color: t.price > 0 ? (isUp ? '#00FF41' : '#FF3333') : '#333' }}>
+                        {t.price > 0 ? `${isUp ? '▲' : '▼'} ${fmtChange(t.change, t.price)}` : '—'}
                       </td>
-                      <td style={{ color: isUp ? '#00FF41' : '#FF3333', fontWeight: 'bold' }}>
-                        {fmtPct(t.changePct)}
+                      <td style={{ color: t.price > 0 ? (isUp ? '#00FF41' : '#FF3333') : '#333', fontWeight: 'bold' }}>
+                        {fmtPct(t.changePct, t.price)}
                       </td>
                     </tr>
                   )

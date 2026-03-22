@@ -1,7 +1,6 @@
 'use client'
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { toYFSymbol } from '@/hooks/useLiveData'
-import { generateOHLC } from '@/lib/mockData'
 import type { ChartBar } from '@/app/api/chart/route'
 
 interface Props {
@@ -40,6 +39,7 @@ export function ChartPanel({ symbol, price, changePct, panelNum = 3 }: Props) {
   const [period,     setPeriod]     = useState<Period>('3M')
   const [dataSource, setDataSource] = useState<'live' | 'sim'>('sim')
   const [loading,    setLoading]    = useState(false)
+  const [dataError,  setDataError]  = useState<string | null>(null)
   const [tooltip,    setTooltip]    = useState<{ time: string; open: number; high: number; low: number; close: number } | null>(null)
 
   const isUp = changePct >= 0
@@ -169,7 +169,7 @@ export function ChartPanel({ symbol, price, changePct, panelNum = 3 }: Props) {
       const json = await res.json()
       const bars: ChartBar[] = json.bars ?? []
 
-      if (bars.length === 0) throw new Error('no bars')
+      if (bars.length === 0) throw new Error('Nincs elérhető adat')
 
       seriesRef.current.setData(
         bars.map(b => ({
@@ -182,24 +182,14 @@ export function ChartPanel({ symbol, price, changePct, panelNum = 3 }: Props) {
       )
       chartRef.current?.timeScale().fitContent()
       setDataSource('live')
-    } catch {
-      // Fallback to generated OHLC
-      const generated = generateOHLC(price, PERIOD_DAYS[per])
-      seriesRef.current?.setData(
-        generated.map(b => ({
-          time:  b.time,
-          open:  b.open,
-          high:  b.high,
-          low:   b.low,
-          close: b.close,
-        }))
-      )
-      chartRef.current?.timeScale().fitContent()
-      setDataSource('sim')
+      setDataError(null)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Ismeretlen hiba'
+      setDataError(`Grafikon nem elérhető: ${msg}`)
     } finally {
       setLoading(false)
     }
-  }, [price])
+  }, [])
 
   // Reload when symbol or period changes
   useEffect(() => {
@@ -286,7 +276,18 @@ export function ChartPanel({ symbol, price, changePct, panelNum = 3 }: Props) {
       )}
 
       {/* Chart container */}
-      <div ref={containerRef} style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }} />
+      <div ref={containerRef} style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+        {dataError && (
+          <div style={{
+            position: 'absolute', inset: 0, display: 'flex',
+            flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            background: '#080808', zIndex: 5, gap: 8,
+          }}>
+            <div style={{ color: '#FF3333', fontSize: 11 }}>⚠ {dataError}</div>
+            <div style={{ color: '#333', fontSize: 9 }}>Ellenőrizd a szimbólumot vagy próbáld újra később</div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

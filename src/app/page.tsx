@@ -13,13 +13,17 @@ import { NewsPanel }       from '@/components/panels/NewsPanel'
 import { FXPanel }         from '@/components/panels/FXPanel'
 import { BUXPanel }        from '@/components/panels/BUXPanel'
 import { MarketOverviewPanel } from '@/components/panels/MarketOverviewPanel'
-import { useSimulatedPrices }  from '@/hooks/useSimulatedPrices'
-import { useLivePrices, useLiveFX, mergePrices } from '@/hooks/useLiveData'
+import { useLivePrices, useLiveFX, applyLivePrices, useFlashMap } from '@/hooks/useLiveData'
 import { TickerData, FXRate }  from '@/lib/types'
 import {
-  EQUITY_TICKERS, INDEX_TICKERS, FX_RATES,
+  EQUITY_TICKERS, INDEX_TICKERS,
   CRYPTO_TICKERS, COMMODITY_TICKERS, MOCK_NEWS, BUX_TICKERS,
 } from '@/lib/mockData'
+
+// Alap definíciók – nincs ár, csak metaadatok (szimbólum, név, típus)
+const EQUITY_BASE = EQUITY_TICKERS.map(t => ({ ...t, price: 0, change: 0, changePct: 0, prevPrice: 0 }))
+const INDEX_BASE  = INDEX_TICKERS.map(t =>  ({ ...t, price: 0, change: 0, changePct: 0, prevPrice: 0 }))
+const BUX_BASE    = BUX_TICKERS.map(t =>   ({ ...t, price: 0, change: 0, changePct: 0, prevPrice: 0 }))
 
 // ── Layout types ──────────────────────────────────────────────────────────────
 type Layout =
@@ -47,25 +51,21 @@ function fxToChart(r: FXRate): ChartItem {
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function Page() {
   const [layout,       setLayout]       = useState<Layout>('default')
-  const [chartItem,    setChartItem]    = useState<ChartItem>({ symbol: 'EUR/HUF', price: 393.08, changePct: 0.51 })
+  const [chartItem,    setChartItem]    = useState<ChartItem>({ symbol: 'EUR/HUF', price: 0, changePct: 0 })
   const [selectedPair, setSelectedPair] = useState<string | undefined>('EUR/HUF')
   const [bottomCat,    setBottomCat]    = useState<BottomCategory>('DEVIZA')
 
-  // ── Simulated prices (smooth real-time feel) ──────────────────────────────
-  const { tickers: simEquities, flashMap: eqFlash }  = useSimulatedPrices(EQUITY_TICKERS, 1000)
-  const { tickers: simIndices,  flashMap: idxFlash }  = useSimulatedPrices(INDEX_TICKERS,  1500)
-  const { tickers: simBux,      flashMap: buxFlash }  = useSimulatedPrices(BUX_TICKERS,    1200)
+  // ── Csak valós árak ────────────────────────────────────────────────────────
+  const { priceMap } = useLivePrices(60_000)
+  const { rates: fxRates } = useLiveFX(60_000)
 
-  // ── Live prices from Yahoo Finance (corrects simulation every 60s) ─────────
-  const { priceMap, source: priceSource } = useLivePrices(60_000)
+  // Live adatok alkalmazása az alap definíciókra
+  const equities   = applyLivePrices(EQUITY_BASE, priceMap)
+  const indices    = applyLivePrices(INDEX_BASE,  priceMap)
+  const buxTickers = applyLivePrices(BUX_BASE,    priceMap)
 
-  // Merge: live prices correct the simulated baseline
-  const equities  = mergePrices(simEquities, priceMap)
-  const indices   = mergePrices(simIndices,  priceMap)
-  const buxTickers = mergePrices(simBux,     priceMap)
-
-  // ── Live FX rates from Frankfurter/ECB ───────────────────────────────────
-  const { rates: fxRates } = useLiveFX(FX_RATES, 60_000)
+  // Flash animáció – csak valós ár-változáskor
+  const flashMap = useFlashMap(priceMap)
 
   // Refs for stable command handler
   const equitiesRef  = useRef(equities)
@@ -75,11 +75,17 @@ export default function Page() {
   useEffect(() => { indicesRef.current   = indices   }, [indices])
   useEffect(() => { chartItemRef.current = chartItem }, [chartItem])
 
-  // Sync chart price for live tickers
+  // Sync chart price when live data arrives
   useEffect(() => {
-    const live = [...equities, ...indices].find(t => t.symbol === chartItem.symbol)
-    if (live) setChartItem(tickerToChart(live))
-  }, [equities, indices, chartItem.symbol])
+    const live = [...equities, ...indices, ...buxTickers].find(t => t.symbol === chartItem.symbol)
+    if (live && live.price > 0) setChartItem(tickerToChart(live))
+    // FX-nél is frissítünk
+    if (!live) {
+      const liveFx = fxRates.find(r => r.pair === chartItem.symbol)
+      if (liveFx && liveFx.rate > 0) setChartItem(fxToChart(liveFx))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priceMap, fxRates])
 
   // ── Command handler (stable via refs) ─────────────────────────────────────
   const handleCommand = useCallback((cmd: string) => {
@@ -178,11 +184,18 @@ export default function Page() {
   // ── Layout panel number ───────────────────────────────────────────────────
   const panelNum = layout === 'default' ? 1 : layout === 'focus-bux' ? 2 : 2
 
+  // ── TickerBar items valós adatból ─────────────────────────────────────────
+  const tickerBarItems = [
+    ...indices.map(t => ({ symbol: t.symbol, price: t.price, changePct: t.changePct })),
+    ...fxRates.filter(r => r.pair.includes('HUF')).map(r => ({ symbol: r.pair.replace('/', ''), price: r.rate, changePct: r.changePct })),
+    ...equities.slice(0, 5).map(t => ({ symbol: t.symbol, price: t.price, changePct: t.changePct })),
+  ]
+
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#000' }}>
 
       {/* Scrolling ticker bar */}
-      <TickerBar />
+      <TickerBar items={tickerBarItems} />
 
       {/* Header */}
       <TerminalHeader loadedSymbol={loadedSymbol} />
@@ -204,7 +217,7 @@ export default function Page() {
             {/* Panel 1 – WEI */}
             <WEIPanel
               indices={indices}
-              flashMap={idxFlash}
+              flashMap={flashMap}
               onSelect={handleIndexSelect}
               selectedSymbol={chartItem.symbol}
               panelNum={1}
@@ -242,9 +255,9 @@ export default function Page() {
         {layout === 'focus-chart' && (
           <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', height: '100%', gap: 1, background: '#111' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <WatchlistPanel title="EQUITY" tickers={equities.slice(0, 5)} flashMap={eqFlash}
+              <WatchlistPanel title="EQUITY" tickers={equities.slice(0, 5)} flashMap={flashMap}
                 showVol={false} onSelect={handleTickerSelect} selectedSymbol={chartItem.symbol} />
-              <WatchlistPanel title="INDICES" tickers={indices.slice(0, 5)} flashMap={idxFlash}
+              <WatchlistPanel title="INDICES" tickers={indices.slice(0, 5)} flashMap={flashMap}
                 showVol={false} priceDecimals={0} onSelect={handleTickerSelect} selectedSymbol={chartItem.symbol} />
               <FXPanel rates={fxRates.slice(0, 4)} onSelect={(r) => { setChartItem(fxToChart(r)); setSelectedPair(r.pair) }} selectedPair={selectedPair} />
             </div>
@@ -276,7 +289,7 @@ export default function Page() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', height: '100%', gap: 1, background: '#111' }}>
             <NewsPanel news={MOCK_NEWS} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <WatchlistPanel title="INDEXEK" tickers={indices} flashMap={idxFlash} showVol={false} priceDecimals={0} onSelect={handleTickerSelect} selectedSymbol={chartItem.symbol} />
+              <WatchlistPanel title="INDEXEK" tickers={indices} flashMap={flashMap} showVol={false} priceDecimals={0} onSelect={handleTickerSelect} selectedSymbol={chartItem.symbol} />
               <WatchlistPanel title="CRYPTO" tickers={CRYPTO_TICKERS} flashMap={{}} showVol={false} onSelect={handleTickerSelect} selectedSymbol={chartItem.symbol} />
             </div>
           </div>
@@ -288,9 +301,9 @@ export default function Page() {
           return (
             <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', height: '100%', gap: 1, background: '#111' }}>
               <BUXPanel
-                buxIndex={buxIndex ?? { symbol: 'BUX', name: 'BUX Index', price: 85420, prevPrice: 84210, change: 1210, changePct: 1.44, volume: 0, type: 'index' }}
+                buxIndex={buxIndex ?? { symbol: 'BUX', name: 'BUX Index', price: 0, prevPrice: 0, change: 0, changePct: 0, volume: 0, type: 'index' }}
                 tickers={buxTickers}
-                flashMap={buxFlash}
+                flashMap={flashMap}
                 onSelect={(t) => { setChartItem(tickerToChart(t)); setSelectedPair(undefined) }}
                 selectedSymbol={chartItem.symbol}
                 panelNum={2}
@@ -309,9 +322,9 @@ export default function Page() {
         {layout === 'focus-ai' && (
           <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', height: '100%', gap: 1, background: '#111' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <WatchlistPanel title="EQUITY" tickers={equities.slice(0, 5)} flashMap={eqFlash}
+              <WatchlistPanel title="EQUITY" tickers={equities.slice(0, 5)} flashMap={flashMap}
                 showVol={false} onSelect={handleAISelect} selectedSymbol={chartItem.symbol} />
-              <WatchlistPanel title="INDEXEK" tickers={indices.slice(0, 5)} flashMap={idxFlash}
+              <WatchlistPanel title="INDEXEK" tickers={indices.slice(0, 5)} flashMap={flashMap}
                 showVol={false} priceDecimals={0} onSelect={handleAISelect} selectedSymbol={chartItem.symbol} />
               <FXPanel rates={fxRates.slice(0, 5)} onSelect={(r) => { setChartItem(fxToChart(r)); setSelectedPair(r.pair) }} selectedPair={selectedPair} />
             </div>
