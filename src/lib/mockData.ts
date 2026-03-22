@@ -41,15 +41,16 @@ export const WEI_REGIONS: Record<string, string[]> = {
 }
 
 // ── BÉT – Budapest Értéktőzsde ────────────────────────────────────────────────
+// Árak: Yahoo Finance v8 API alapján (2025. március)
 export const BUX_TICKERS: TickerData[] = [
-  { symbol: 'OTP',      name: 'OTP Bank',          price: 22450,  prevPrice: 22100,  change:  350,   changePct:  1.58, volume: 2850000, marketCap: 4.2e12,  pe: 9.4,  type: 'equity' },
-  { symbol: 'MOL',      name: 'MOL Magyar Olaj',   price:  2745,  prevPrice:  2698,  change:   47,   changePct:  1.74, volume:  980000, marketCap: 1.8e12,  pe: 7.1,  type: 'equity' },
-  { symbol: 'RICHTER',  name: 'Richter Gedeon',    price:  9680,  prevPrice:  9540,  change:  140,   changePct:  1.47, volume:  540000, marketCap: 1.7e12,  pe: 15.8, type: 'equity' },
-  { symbol: 'MTELEKOM', name: 'Magyar Telekom',    price:  1248,  prevPrice:  1235,  change:   13,   changePct:  1.05, volume:  720000, marketCap: 548e9,   pe: 11.2, type: 'equity' },
-  { symbol: '4iG',      name: '4iG Nyrt',          price:   612,  prevPrice:   598,  change:   14,   changePct:  2.34, volume:  310000, marketCap: 182e9,   pe: 18.6, type: 'equity' },
-  { symbol: 'OPUS',     name: 'Opus Global',       price:   487,  prevPrice:   495,  change:   -8,   changePct: -1.62, volume:  195000, marketCap: 96e9,    pe: 22.1, type: 'equity' },
-  { symbol: 'AUTOWALLIS', name: 'AutoWallis',      price:   248,  prevPrice:   245,  change:    3,   changePct:  1.22, volume:  145000, marketCap: 48e9,    pe: 12.4, type: 'equity' },
-  { symbol: 'ORMESTER', name: 'Ormester',          price:  1850,  prevPrice:  1820,  change:   30,   changePct:  1.65, volume:   48000, marketCap: 18e9,    pe: 8.9,  type: 'equity' },
+  { symbol: 'OTP',        name: 'OTP Bank',        price: 35950, prevPrice: 35950, change:    0, changePct:  0.00, volume: 2850000, marketCap: 4.2e12, pe:  9.4, type: 'equity' },
+  { symbol: 'MOL',        name: 'MOL Magyar Olaj', price:  3916, prevPrice:  3916, change:    0, changePct:  0.00, volume:  980000, marketCap: 1.8e12, pe:  7.1, type: 'equity' },
+  { symbol: 'RICHTER',    name: 'Richter Gedeon',  price: 11740, prevPrice: 11690, change:   50, changePct:  0.43, volume:  540000, marketCap: 1.7e12, pe: 15.8, type: 'equity' },
+  { symbol: 'MTELEKOM',   name: 'Magyar Telekom',  price:  2010, prevPrice:  2010, change:    0, changePct:  0.00, volume:  720000, marketCap: 548e9,  pe: 11.2, type: 'equity' },
+  { symbol: '4iG',        name: '4iG Nyrt',        price:  2940, prevPrice:  2940, change:    0, changePct:  0.00, volume:  310000, marketCap: 182e9,  pe: 18.6, type: 'equity' },
+  { symbol: 'OPUS',       name: 'Opus Global',     price:   496, prevPrice:   496, change:    0, changePct:  0.00, volume:  195000, marketCap: 96e9,   pe: 22.1, type: 'equity' },
+  { symbol: 'AUTOWALLIS', name: 'AutoWallis',      price:   153, prevPrice:   157, change:   -4, changePct: -2.55, volume:  145000, marketCap: 48e9,   pe: 12.4, type: 'equity' },
+  { symbol: 'ORMESTER',   name: 'Ormester',        price:   410, prevPrice:   410, change:    0, changePct:  0.00, volume:   48000, marketCap: 18e9,   pe:  8.9, type: 'equity' },
 ]
 
 // ── Devizaárfolyamok (FXC) ───────────────────────────────────────────────────
